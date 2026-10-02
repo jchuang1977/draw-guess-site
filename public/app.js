@@ -137,7 +137,6 @@ function renderSettings() {
   status.className = `auth-status ${provider?.connected ? "connected" : "unconnected"}`;
   $("oauth-section").hidden = connectionMode !== "subscription" || !provider?.oauth;
   $("disconnect").hidden = !provider?.stored;
-  if (connectionMode === "api_key") $("api-key-input").value = "";
   if (connectionMode === "custom") {
     const saved = activeCredential();
     $("custom-url").value = saved?.baseUrl || "";
@@ -490,6 +489,7 @@ function bindEvents() {
   document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("settings-modal").hidden) closeSettings(); });
   for (const tab of document.querySelectorAll(".connection-tab")) tab.addEventListener("click", () => {
     connectionMode = tab.dataset.mode;
+    $("api-key-input").value = "";
     selectedProvider = connectionMode === "custom" ? "custom" : modeProviders()[0]?.id || "";
     selectedModel = connectionMode === "custom" ? readCredentials().custom?.model || "" : currentProvider()?.models[0]?.id || "";
     $("model-search").value = "";
@@ -500,6 +500,7 @@ function bindEvents() {
   });
   $("provider-select").addEventListener("change", event => {
     selectedProvider = event.target.value;
+    $("api-key-input").value = "";
     selectedModel = currentProvider()?.models[0]?.id || "";
     $("model-search").value = "";
     $("oauth-flow").hidden = true;
