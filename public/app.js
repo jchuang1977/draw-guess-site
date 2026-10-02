@@ -6,6 +6,7 @@ const words = ["小貓", "冰淇淋", "雨傘", "腳踏車", "火箭", "烏龜",
 let providers = [];
 let selectedProvider = "";
 let selectedModel = "";
+let connectionMode = "subscription";
 let tool = "pen";
 let color = "#242d38";
 let brushSize = 8;
@@ -25,12 +26,8 @@ let oauthInterval = 5000;
 
 function readCredentials() {
   try {
-    const all = JSON.parse(sessionStorage.getItem("draw-guess-credentials") || "{}");
-    const current = {};
-    if (all?.openrouter?.type === "openrouter") current.openrouter = all.openrouter;
-    if (all?.["github-copilot"]?.type === "copilot") current["github-copilot"] = all["github-copilot"];
-    if (JSON.stringify(all) !== JSON.stringify(current)) sessionStorage.setItem("draw-guess-credentials", JSON.stringify(current));
-    return current;
+    const saved = JSON.parse(sessionStorage.getItem("draw-guess-credentials") || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
   }
   catch { return {}; }
 }
@@ -59,11 +56,24 @@ async function api(path, options = {}) {
 
 function post(path, data) { return api(path, { method: "POST", body: JSON.stringify(data) }); }
 
-function currentProvider() { return providers.find(p => p.id === selectedProvider); }
+function credentialKey() { return connectionMode === "api_key" ? `api:${selectedProvider}` : connectionMode === "custom" ? "custom" : selectedProvider; }
+function activeCredential() { return readCredentials()[credentialKey()]; }
+function modeProviders() {
+  const order = connectionMode === "subscription" ? ["openrouter", "github-copilot", "openai-codex"] : ["openai", "anthropic", "google", "openrouter"];
+  return order.map(id => providers.find(provider => provider.id === id)).filter(Boolean);
+}
+function currentProvider() {
+  if (connectionMode === "custom") {
+    const credential = activeCredential();
+    return { id: "custom", name: "自訂介面", models: credential?.model ? [{ id: credential.model, name: credential.model }] : [], connected: !!credential?.baseUrl && !!credential?.model, stored: !!credential };
+  }
+  const provider = modeProviders().find(p => p.id === selectedProvider);
+  return provider ? { ...provider, connected: !!activeCredential(), stored: !!activeCredential() } : null;
+}
 function currentModel() { return currentProvider()?.models.find(m => m.id === selectedModel); }
 
 function persistSelection() {
-  localStorage.setItem("draw-guess-selection", JSON.stringify({ provider: selectedProvider, model: selectedModel }));
+  localStorage.setItem("draw-guess-selection", JSON.stringify({ mode: connectionMode, provider: selectedProvider, model: selectedModel }));
 }
 
 function loadSelection() {
@@ -77,11 +87,12 @@ async function refreshBootstrap(keepSelection = true) {
   providers = data.providers.map(provider => {
     const credential = credentials[provider.id];
     const accountModels = provider.id === "github-copilot" && credential?.modelIds ? provider.models.filter(model => credential.modelIds.includes(model.id)) : provider.models;
-    return { ...provider, models: accountModels, connected: !!credential, stored: !!credential };
+    return { ...provider, models: accountModels };
   });
   const saved = loadSelection();
+  if (!keepSelection && ["subscription", "api_key", "custom"].includes(saved.mode)) connectionMode = saved.mode;
   const wanted = keepSelection ? selectedProvider || saved.provider : saved.provider;
-  selectedProvider = providers.find(p => p.id === wanted)?.id || providers.find(p => p.connected)?.id || providers[0]?.id || "";
+  selectedProvider = connectionMode === "custom" ? "custom" : modeProviders().find(p => p.id === wanted)?.id || modeProviders().find(p => credentials[connectionMode === "api_key" ? `api:${p.id}` : p.id])?.id || modeProviders()[0]?.id || "";
   const provider = currentProvider();
   const modelWanted = keepSelection ? selectedModel || saved.model : saved.model;
   selectedModel = provider?.models.find(m => m.id === modelWanted)?.id || provider?.models.find(m => /gpt-4o-mini|gemini-2\.5-flash|claude-sonnet/i.test(m.id))?.id || provider?.models[0]?.id || "";
@@ -100,10 +111,14 @@ function renderModelLine() {
 }
 
 function renderSettings() {
+  for (const tab of document.querySelectorAll(".connection-tab")) tab.setAttribute("aria-selected", String(tab.dataset.mode === connectionMode));
+  for (const mode of ["subscription", "api_key", "custom"]) $(`panel-${mode.replace("_", "-")}`).hidden = mode !== connectionMode;
+  $("model-fields").hidden = connectionMode === "custom";
   const providerSelect = $("provider-select");
   providerSelect.replaceChildren();
-  for (const provider of providers) {
-    const option = new Option(`${provider.name}${provider.connected ? " · 已連線" : ""}`, provider.id);
+  for (const provider of modeProviders()) {
+    const stored = readCredentials()[connectionMode === "api_key" ? `api:${provider.id}` : provider.id];
+    const option = new Option(`${provider.name}${stored ? " · 已連線" : ""}`, provider.id);
     providerSelect.add(option);
   }
   providerSelect.value = selectedProvider;
@@ -118,14 +133,22 @@ function renderSettings() {
   if ([...modelSelect.options].some(option => option.value === selectedModel)) modelSelect.value = selectedModel;
   else modelSelect.selectedIndex = -1;
   const status = $("auth-status");
-  status.textContent = provider?.connected ? `✓ ${provider.name} 已連線，可以開始猜畫了。` : `${provider?.name || "模型供應商"}尚未連線，請登入你的供應商帳號。`;
+  status.textContent = provider?.connected ? `✓ ${provider.name} 已連線，可以開始猜畫了。` : connectionMode === "custom" ? "請填入自訂介面設定。" : connectionMode === "api_key" ? "請輸入此供應商的 API Key。" : selectedProvider === "openai-codex" ? "OpenAI 訂閱登入需要本站專用的 OAuth client ID，目前尚未開通。" : `請登入 ${provider?.name || "模型供應商"} 帳號。`;
   status.className = `auth-status ${provider?.connected ? "connected" : "unconnected"}`;
-  $("oauth-section").hidden = !provider?.oauth;
+  $("oauth-section").hidden = connectionMode !== "subscription" || !provider?.oauth;
   $("disconnect").hidden = !provider?.stored;
-  if (provider?.oauth) {
-    $("oauth-section").querySelector("h3").firstChild.textContent = "登入供應商帳號 ";
+  if (connectionMode === "api_key") $("api-key-input").value = "";
+  if (connectionMode === "custom") {
+    const saved = activeCredential();
+    $("custom-url").value = saved?.baseUrl || "";
+    $("custom-model").value = saved?.model || "";
+    $("custom-key").value = "";
+  }
+  if (provider?.oauth && connectionMode === "subscription") {
     $("oauth-section").querySelector(".recommended").hidden = !provider.oauth.subscription;
-    $("oauth-description").textContent = provider.id === "github-copilot"
+    $("oauth-description").textContent = provider.id === "openai-codex"
+      ? "OpenAI 官方要求公開網站先取得專屬 OAuth client ID 並登記回呼網址。本站尚未取得，暫時無法使用訂閱登入；你仍可切換到 API Key 分頁使用 OpenAI。"
+      : provider.id === "github-copilot"
       ? "前往 GitHub 登入並輸入裝置代碼；帳號需有 GitHub Copilot 使用權限。"
       : "前往 OpenRouter 登入，授權後會自動回到畫板。模型使用量會計入你的 OpenRouter 帳號。";
     $("oauth-button").textContent = `${provider.oauth.label} ↗`;
@@ -257,7 +280,7 @@ async function requestGuess() {
   $("judge-actions").hidden = true;
   setBubble("正在猜畫", "嗯……讓我仔細看看你畫了什麼。", "通常幾秒鐘就好，稍等我一下。");
   try {
-    const result = await post("/api/guess", { providerId: selectedProvider, modelId: selectedModel, image: canvas.toDataURL("image/png"), credential: readCredentials()[selectedProvider] });
+    const result = await post("/api/guess", { providerId: selectedProvider, modelId: selectedModel, image: canvas.toDataURL("image/png"), credential: activeCredential() });
     guesses += 1;
     updateScore();
     setBubble("我猜是……", result.guess, result.detail || "這次猜得對嗎？由你來決定！");
@@ -337,6 +360,10 @@ async function pollOAuth() {
 }
 
 async function startOAuth() {
+  if (selectedProvider === "openai-codex") {
+    window.open("https://developers.openai.com/siwc/request-client-id", "_blank", "noopener,noreferrer");
+    return;
+  }
   if (selectedProvider === "openrouter") return startOpenRouterLogin();
   const loginWindow = window.open("about:blank", "_blank");
   try {
@@ -461,6 +488,16 @@ function bindEvents() {
   for (const id of ["close-settings", "done-settings"]) $(id).addEventListener("click", closeSettings);
   $("settings-modal").addEventListener("click", event => { if (event.target === $("settings-modal")) closeSettings(); });
   document.addEventListener("keydown", event => { if (event.key === "Escape" && !$("settings-modal").hidden) closeSettings(); });
+  for (const tab of document.querySelectorAll(".connection-tab")) tab.addEventListener("click", () => {
+    connectionMode = tab.dataset.mode;
+    selectedProvider = connectionMode === "custom" ? "custom" : modeProviders()[0]?.id || "";
+    selectedModel = connectionMode === "custom" ? readCredentials().custom?.model || "" : currentProvider()?.models[0]?.id || "";
+    $("model-search").value = "";
+    $("oauth-flow").hidden = true;
+    persistSelection();
+    renderSettings();
+    renderModelLine();
+  });
   $("provider-select").addEventListener("change", event => {
     selectedProvider = event.target.value;
     selectedModel = currentProvider()?.models[0]?.id || "";
@@ -477,9 +514,34 @@ function bindEvents() {
     renderModelLine();
   });
   $("oauth-button").addEventListener("click", startOAuth);
+  $("save-api-key").addEventListener("click", () => {
+    const key = $("api-key-input").value.trim();
+    if (!key || key.length > 2048) return toast("請輸入有效的 API Key");
+    saveCredential(credentialKey(), { type: "api_key", key });
+    $("api-key-input").value = "";
+    renderSettings();
+    renderModelLine();
+    toast("API Key 已儲存在此分頁，可以開始猜畫了");
+  });
+  $("save-custom").addEventListener("click", () => {
+    const baseUrl = $("custom-url").value.trim();
+    const model = $("custom-model").value.trim();
+    const key = $("custom-key").value.trim();
+    try {
+      const url = new URL(baseUrl);
+      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.port && url.port !== "443" || /^(localhost|.*\.(localhost|local|internal|chatgpt\.site))$/i.test(url.hostname) || /^\d+(\.\d+){3}$/.test(url.hostname) || url.hostname.includes(":")) throw new Error();
+    } catch { return toast("請輸入公開可連線的 HTTPS API 基底網址"); }
+    if (!model || model.length > 120 || key.length > 2048) return toast("請檢查模型 ID 或 API Key");
+    saveCredential("custom", { type: "custom", baseUrl, model, key: key || activeCredential()?.key || "" });
+    selectedModel = model;
+    persistSelection();
+    renderSettings();
+    renderModelLine();
+    toast("自訂介面已儲存，可以開始猜畫了");
+  });
   $("disconnect").addEventListener("click", async () => {
     try {
-      saveCredential(selectedProvider, null);
+      saveCredential(credentialKey(), null);
       await refreshBootstrap();
       toast("已移除此分頁的模型連線");
     } catch (error) { toast(error.message); }

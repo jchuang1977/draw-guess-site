@@ -114,16 +114,33 @@
   <div id="settings-modal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-header"><div><span class="eyebrow">設定你的猜畫夥伴</span><h2 id="settings-title">幫 AI 接上大腦</h2></div><button id="close-settings" class="close-button" type="button" aria-label="關閉設定">×</button></div>
-      <p class="modal-intro">選擇模型供應商，登入你的帳號完成授權，就能讓 AI 猜畫。</p>
-      <div class="form-grid">
+      <p class="modal-intro">選擇你方便的連線方式，讓 AI 看懂你的畫。</p>
+      <div class="connection-tabs" role="tablist" aria-label="模型連線方式">
+        <button id="tab-subscription" class="connection-tab" type="button" role="tab" aria-controls="panel-subscription" aria-selected="true" data-mode="subscription">訂閱登入</button>
+        <button id="tab-api-key" class="connection-tab" type="button" role="tab" aria-controls="panel-api-key" aria-selected="false" data-mode="api_key">API Key</button>
+        <button id="tab-custom" class="connection-tab" type="button" role="tab" aria-controls="panel-custom" aria-selected="false" data-mode="custom">自訂介面</button>
+      </div>
+      <div id="model-fields" class="form-grid">
         <label>模型供應商<select id="provider-select"></select></label>
         <label>圖片辨識模型<input id="model-search" type="search" placeholder="搜尋模型名稱" autocomplete="off" /><select id="model-select" size="5" aria-label="選擇圖片辨識模型"></select></label>
       </div>
       <div id="auth-status" class="auth-status">正在讀取連線狀態…</div>
-      <div class="auth-methods">
-        <div id="oauth-section" class="auth-section"><h3>登入供應商帳號 <span class="recommended">訂閱</span></h3><p id="oauth-description">到供應商網站完成授權。</p><button id="oauth-button" class="auth-main-button" type="button">前往供應商登入 ↗</button></div>
+      <div id="panel-subscription" role="tabpanel" aria-labelledby="tab-subscription" class="auth-methods">
+        <div id="oauth-section" class="auth-section"><h3>使用供應商帳號連線 <span class="recommended">推薦</span></h3><p id="oauth-description">到供應商網站完成授權。</p><button id="oauth-button" class="auth-main-button" type="button">前往供應商登入 ↗</button></div>
+        <div id="oauth-flow" class="oauth-flow" hidden><div class="flow-title"><span class="flow-pulse"></span> 授權進行中</div><div id="oauth-events" class="oauth-events"></div></div>
       </div>
-      <div id="oauth-flow" class="oauth-flow" hidden><div class="flow-title"><span class="flow-pulse"></span> 授權進行中</div><div id="oauth-events" class="oauth-events"></div></div>
+      <div id="panel-api-key" role="tabpanel" aria-labelledby="tab-api-key" class="auth-section" hidden>
+        <h3>使用自己的 API Key</h3><p>金鑰只會暫存在這個瀏覽器分頁，猜畫時送到本站服務再轉交模型供應商。</p>
+        <label class="field-label">API Key<input id="api-key-input" type="password" placeholder="貼上你的 API Key" autocomplete="off" spellcheck="false" /></label>
+        <button id="save-api-key" class="auth-main-button" type="button">儲存並使用此模型</button>
+      </div>
+      <div id="panel-custom" role="tabpanel" aria-labelledby="tab-custom" class="auth-section" hidden>
+        <h3>自訂 OpenAI 相容介面</h3><p>請填入支援圖片輸入的公開 HTTPS 服務；本站會呼叫其 /chat/completions 端點。</p>
+        <label class="field-label">API 基底網址<input id="custom-url" type="url" placeholder="https://example.com/v1" autocomplete="url" /></label>
+        <label class="field-label">模型 ID<input id="custom-model" type="text" placeholder="你的圖片辨識模型 ID" autocomplete="off" /></label>
+        <label class="field-label">API Key（若服務需要）<input id="custom-key" type="password" placeholder="選填；留白會沿用已儲存的金鑰" autocomplete="off" spellcheck="false" /></label>
+        <button id="save-custom" class="auth-main-button" type="button">儲存並使用自訂介面</button>
+      </div>
         <div class="modal-footer"><button id="disconnect" class="disconnect-button" type="button" hidden>移除此分頁的連線</button><span>授權資訊只會暫存在這個瀏覽器分頁。</span><button id="done-settings" class="done-button" type="button">完成設定</button></div>
     </div>
   </div>
