@@ -24,7 +24,14 @@ let toastTimer = null;
 let oauthInterval = 5000;
 
 function readCredentials() {
-  try { return JSON.parse(sessionStorage.getItem("draw-guess-credentials") || "{}"); }
+  try {
+    const all = JSON.parse(sessionStorage.getItem("draw-guess-credentials") || "{}");
+    const current = {};
+    if (all?.openrouter?.type === "openrouter") current.openrouter = all.openrouter;
+    if (all?.["github-copilot"]?.type === "copilot") current["github-copilot"] = all["github-copilot"];
+    if (JSON.stringify(all) !== JSON.stringify(current)) sessionStorage.setItem("draw-guess-credentials", JSON.stringify(current));
+    return current;
+  }
   catch { return {}; }
 }
 
@@ -70,7 +77,7 @@ async function refreshBootstrap(keepSelection = true) {
   providers = data.providers.map(provider => {
     const credential = credentials[provider.id];
     const accountModels = provider.id === "github-copilot" && credential?.modelIds ? provider.models.filter(model => credential.modelIds.includes(model.id)) : provider.models;
-    return { ...provider, models: accountModels, connected: !!credential, stored: !!credential, authType: credential?.type === "copilot" ? "oauth" : credential?.type || null };
+    return { ...provider, models: accountModels, connected: !!credential, stored: !!credential };
   });
   const saved = loadSelection();
   const wanted = keepSelection ? selectedProvider || saved.provider : saved.provider;
@@ -96,7 +103,7 @@ function renderSettings() {
   const providerSelect = $("provider-select");
   providerSelect.replaceChildren();
   for (const provider of providers) {
-    const option = new Option(`${provider.name}${provider.connected ? " · 已設定" : ""}`, provider.id);
+    const option = new Option(`${provider.name}${provider.connected ? " · 已連線" : ""}`, provider.id);
     providerSelect.add(option);
   }
   providerSelect.value = selectedProvider;
@@ -111,15 +118,16 @@ function renderSettings() {
   if ([...modelSelect.options].some(option => option.value === selectedModel)) modelSelect.value = selectedModel;
   else modelSelect.selectedIndex = -1;
   const status = $("auth-status");
-  status.textContent = provider?.connected ? `✓ ${provider.name} 已透過${provider.authType === "oauth" ? "訂閱帳號" : "API 金鑰"}設定，可以開始猜畫了。` : `${provider?.name || "模型供應商"}尚未連線，請選擇一種方式。`;
+  status.textContent = provider?.connected ? `✓ ${provider.name} 已連線，可以開始猜畫了。` : `${provider?.name || "模型供應商"}尚未連線，請登入你的供應商帳號。`;
   status.className = `auth-status ${provider?.connected ? "connected" : "unconnected"}`;
   $("oauth-section").hidden = !provider?.oauth;
-  $("key-section").hidden = !provider?.apiKey;
   $("disconnect").hidden = !provider?.stored;
   if (provider?.oauth) {
-    $("oauth-section").querySelector("h3").firstChild.textContent = provider.oauth.subscription ? "用訂閱帳號登入 " : "透過帳號授權 ";
+    $("oauth-section").querySelector("h3").firstChild.textContent = "登入供應商帳號 ";
     $("oauth-section").querySelector(".recommended").hidden = !provider.oauth.subscription;
-    $("oauth-description").textContent = "前往 GitHub 輸入裝置代碼登入。需要你的帳號有 GitHub Copilot 使用權限。";
+    $("oauth-description").textContent = provider.id === "github-copilot"
+      ? "前往 GitHub 登入並輸入裝置代碼；帳號需有 GitHub Copilot 使用權限。"
+      : "前往 OpenRouter 登入，授權後會自動回到畫板。模型使用量會計入你的 OpenRouter 帳號。";
     $("oauth-button").textContent = `${provider.oauth.label} ↗`;
   }
 }
@@ -329,15 +337,82 @@ async function pollOAuth() {
 }
 
 async function startOAuth() {
+  if (selectedProvider === "openrouter") return startOpenRouterLogin();
+  const loginWindow = window.open("about:blank", "_blank");
   try {
     $("oauth-button").disabled = true;
     const result = await post("/api/auth/copilot/start", {});
+    if (loginWindow) loginWindow.location.replace(result.verificationUri);
     activeSessionId = result.deviceCode;
     oauthInterval = result.interval * 1000;
     renderOAuthSession({ state: "pending", events: [{ type: "device_code", userCode: result.userCode, verificationUri: result.verificationUri }] });
     pollingTimer = setTimeout(pollOAuth, oauthInterval);
-  } catch (error) { toast(error.message); }
+  } catch (error) { loginWindow?.close(); toast(error.message); }
   finally { $("oauth-button").disabled = false; }
+}
+
+function saveRoundForRedirect() {
+  try {
+    sessionStorage.setItem("draw-guess-round-before-login", JSON.stringify({
+      challenge, guesses, wins, roundScored, roundFinished, hasDrawing,
+      image: hasDrawing ? canvas.toDataURL("image/png") : null,
+    }));
+  } catch { /* The login can proceed even when browser storage is full. */ }
+}
+
+function restoreRoundAfterRedirect() {
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem("draw-guess-round-before-login") || "null"); }
+  catch { saved = null; }
+  sessionStorage.removeItem("draw-guess-round-before-login");
+  if (!saved) return;
+  challenge = typeof saved.challenge === "string" ? saved.challenge : challenge;
+  $("challenge-word").textContent = challenge || "自由創作";
+  guesses = Number(saved.guesses) || 0;
+  wins = Number(saved.wins) || 0;
+  roundScored = !!saved.roundScored;
+  roundFinished = !!saved.roundFinished;
+  updateScore();
+  if (roundFinished) $("guess-button").querySelector("span").textContent = "開始下一回合";
+  if (saved.hasDrawing && saved.image) {
+    const image = new Image();
+    image.onload = () => { ctx.drawImage(image, 0, 0, canvas.width, canvas.height); hasDrawing = true; snapshot(); };
+    image.src = saved.image;
+  }
+}
+
+async function startOpenRouterLogin() {
+  try {
+    const verifierBytes = crypto.getRandomValues(new Uint8Array(32));
+    const verifier = btoa(String.fromCharCode(...verifierBytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const challenge = btoa(String.fromCharCode(...digest)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const state = crypto.randomUUID();
+    const callback = new URL("/openrouter-callback", location.origin);
+    callback.searchParams.set("state", state);
+    const authorize = new URL("https://openrouter.ai/auth");
+    authorize.searchParams.set("callback_url", callback.toString());
+    authorize.searchParams.set("code_challenge", challenge);
+    authorize.searchParams.set("code_challenge_method", "S256");
+    authorize.searchParams.set("key_label", "畫點什麼");
+    saveRoundForRedirect();
+    sessionStorage.setItem("draw-guess-openrouter-pending", JSON.stringify({ state, verifier, startedAt: Date.now() }));
+    location.assign(authorize.toString());
+  } catch {
+    toast("無法開始 OpenRouter 登入，請確認瀏覽器允許儲存網站資料。");
+  }
+}
+
+function showAuthReturn() {
+  const auth = new URLSearchParams(location.search).get("auth");
+  if (!auth) return;
+  history.replaceState(null, "", location.pathname);
+  if (auth === "openrouter-connected") toast("OpenRouter 已連線，可以開始猜畫了");
+  if (auth === "openrouter-error") {
+    const message = sessionStorage.getItem("draw-guess-auth-error") || "OpenRouter 登入未完成。";
+    sessionStorage.removeItem("draw-guess-auth-error");
+    toast(message);
+  }
 }
 
 function bindEvents() {
@@ -387,7 +462,6 @@ function bindEvents() {
     selectedProvider = event.target.value;
     selectedModel = currentProvider()?.models[0]?.id || "";
     $("model-search").value = "";
-    $("api-key").value = "";
     $("oauth-flow").hidden = true;
     persistSelection();
     renderSettings();
@@ -399,31 +473,20 @@ function bindEvents() {
     persistSelection();
     renderModelLine();
   });
-  $("save-key").addEventListener("click", async () => {
-    const key = $("api-key").value;
-    if (!key.trim()) return toast("請先輸入 API 金鑰");
-    try {
-      $("save-key").disabled = true;
-      saveCredential(selectedProvider, { type: "api_key", key: key.trim() });
-      $("api-key").value = "";
-      await refreshBootstrap();
-      toast("金鑰已暫存在這個瀏覽器分頁，猜畫時會驗證是否可用");
-    } catch (error) { toast(error.message); }
-    finally { $("save-key").disabled = false; }
-  });
   $("oauth-button").addEventListener("click", startOAuth);
   $("disconnect").addEventListener("click", async () => {
     try {
       saveCredential(selectedProvider, null);
       await refreshBootstrap();
-      toast("已中斷此模型服務的連線");
+      toast("已移除此分頁的模型連線");
     } catch (error) { toast(error.message); }
   });
 }
 
 bindEvents();
 newRound();
-refreshBootstrap(false).catch(error => {
+restoreRoundAfterRedirect();
+refreshBootstrap(false).then(showAuthReturn).catch(error => {
   toast(`無法讀取模型：${error.message}`);
   setBubble("連線失敗", "模型服務暫時無法使用。", "請稍後重新整理頁面。");
 });

@@ -11,7 +11,7 @@ function error(message: string, status: number) {
 }
 
 function modelError(message: string) {
-  if (/401|unauthorized|invalid.*key|authentication/i.test(message)) return "模型驗證失敗，請檢查帳號或 API 金鑰。";
+  if (/401|unauthorized|invalid.*key|authentication/i.test(message)) return "模型授權已失效，請重新登入供應商帳號。";
   if (/403|forbidden|permission/i.test(message)) return "這個帳號沒有使用所選模型的權限，請換個模型。";
   if (/429|rate.?limit|quota|credit|insufficient/i.test(message)) return "模型額度不足或請求太頻繁，請稍後再試。";
   if (/404|model.*(not found|unsupported|unavailable)/i.test(message)) return "找不到所選模型，請到模型設定更換模型。";
@@ -44,10 +44,10 @@ export async function POST(request: Request) {
       const auth = await copilotAuth(credential.token);
       apiKey = auth.apiKey;
       requestModel = { ...model, baseUrl: auth.baseUrl };
-    } else {
-      if (credential?.type !== "api_key" || !credential.key?.trim() || credential.key.length > 2048) return error("請先設定 API 金鑰", 401);
+    } else if (providerId === "openrouter") {
+      if (credential?.type !== "openrouter" || !credential.key?.trim() || credential.key.length > 2048) return error("請先登入 OpenRouter", 401);
       apiKey = credential.key.trim();
-    }
+    } else return error("此供應商不支援帳號登入", 400);
 
     const response = await models.complete(requestModel, {
       systemPrompt: "你正在玩你畫我猜。只根據圖片猜測畫中的主要物品或場景，不要猜題目來源。請使用臺灣慣用的繁體中文回答。第一行只寫一個最可能的簡短答案，第二行可以輕鬆說明理由。即使不確定，也要給出一個猜測。不要使用 Markdown 格式。",

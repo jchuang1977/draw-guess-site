@@ -114,18 +114,17 @@
   <div id="settings-modal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-header"><div><span class="eyebrow">設定你的猜畫夥伴</span><h2 id="settings-title">幫 AI 接上大腦</h2></div><button id="close-settings" class="close-button" type="button" aria-label="關閉設定">×</button></div>
-      <p class="modal-intro">選擇能辨識圖片的模型。公開版支援 GitHub Copilot 訂閱登入，或使用你自己的 API 金鑰。</p>
+      <p class="modal-intro">選擇模型供應商，登入你的帳號完成授權，就能讓 AI 猜畫。</p>
       <div class="form-grid">
         <label>模型供應商<select id="provider-select"></select></label>
         <label>圖片辨識模型<input id="model-search" type="search" placeholder="搜尋模型名稱" autocomplete="off" /><select id="model-select" size="5" aria-label="選擇圖片辨識模型"></select></label>
       </div>
       <div id="auth-status" class="auth-status">正在讀取連線狀態…</div>
       <div class="auth-methods">
-        <div id="oauth-section" class="auth-section"><h3>用訂閱帳號登入 <span class="recommended">建議</span></h3><p id="oauth-description">到供應商網站完成授權。</p><button id="oauth-button" class="auth-main-button" type="button">開始訂閱登入 ↗</button></div>
-        <div id="key-section" class="auth-section"><h3>使用 API 金鑰</h3><p>金鑰只會暫存在這個瀏覽器分頁；猜畫時由本站轉交模型服務。請勿在共用電腦上使用。</p><div class="key-row"><input id="api-key" type="password" placeholder="貼上你的 API 金鑰" autocomplete="off" /><button id="save-key" type="button">暫存金鑰</button></div></div>
+        <div id="oauth-section" class="auth-section"><h3>登入供應商帳號 <span class="recommended">訂閱</span></h3><p id="oauth-description">到供應商網站完成授權。</p><button id="oauth-button" class="auth-main-button" type="button">前往供應商登入 ↗</button></div>
       </div>
       <div id="oauth-flow" class="oauth-flow" hidden><div class="flow-title"><span class="flow-pulse"></span> 授權進行中</div><div id="oauth-events" class="oauth-events"></div></div>
-        <div class="modal-footer"><button id="disconnect" class="disconnect-button" type="button" hidden>中斷此服務的連線</button><span>關閉分頁後，請重新連線模型。</span><button id="done-settings" class="done-button" type="button">完成設定</button></div>
+        <div class="modal-footer"><button id="disconnect" class="disconnect-button" type="button" hidden>移除此分頁的連線</button><span>授權資訊只會暫存在這個瀏覽器分頁。</span><button id="done-settings" class="done-button" type="button">完成設定</button></div>
     </div>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
