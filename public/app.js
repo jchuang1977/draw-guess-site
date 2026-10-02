@@ -342,7 +342,10 @@ async function startOAuth() {
   try {
     $("oauth-button").disabled = true;
     const result = await post("/api/auth/copilot/start", {});
-    if (loginWindow) loginWindow.location.replace(result.verificationUri);
+    if (loginWindow) {
+      loginWindow.opener = null;
+      loginWindow.location.replace(result.verificationUri);
+    }
     activeSessionId = result.deviceCode;
     oauthInterval = result.interval * 1000;
     renderOAuthSession({ state: "pending", events: [{ type: "device_code", userCode: result.userCode, verificationUri: result.verificationUri }] });
